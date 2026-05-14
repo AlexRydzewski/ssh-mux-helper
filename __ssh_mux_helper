@@ -4,7 +4,7 @@
 # option validation, multiplexed connections (ControlMaster / ControlPath), and
 # related utilities used by this ssh-helper project.
 #
-VERSION="0.1.0"
+VERSION="0.2.0"
 # Author:    Alexander Rydzewski <rydzewski.al@gmail.com>
 # License:   MIT — see the LICENSE file in this repository (SPDX-License-Identifier: MIT)
 
@@ -78,10 +78,27 @@ command -v ssh &> /dev/null || { __event_control "SSH utility is not installed" 
 
 # 3.2. Check whether the SSH utility is OpenSSH-compatible.
 __validate_openssh () {
-    [[ -f "$1" ]] &&
-      { $1 | grep -q OpenSSH_ 2> /dev/null && return 0
-        __event_control "Unsupported SSH command: $1. Must be OpenSSH compatible." 4; return 1; }
-    __event_control "The $1 utility not found or not accessible." 4; return 1;
+    local ssh_utility
+
+    if (( $# == 0 )); then
+        __event_control "SSH command is not specified. Try just 'ssh'"
+        ssh_utility=$(command -v ssh 2>/dev/null) ||
+          { __event_control "SSH utility is not installed" 3; return 1; }
+    else
+        [[ ! -f "$1" ]] &&
+          { [[ "$1" != "$(basename -- "$1")" ]] &&
+              { __event_control "The '$1' utility does not exist." 3; return 1; }
+            ssh_utility=$(command -v -- "$1" 2>/dev/null) ||
+              { __event_control "The '$1' utility is not installed" 3; return 1; }; }
+    fi
+    
+    [[ -x "${ssh_utility:-$1}" ]] ||
+        { __event_control "The '${ssh_utility:-$1}' utility is not executable." 3; return 1; }
+
+    "${ssh_utility:-$1}" -V 2>&1 | grep -q 'OpenSSH_' && return 0
+
+    __event_control "Unsupported SSH command: '${ssh_utility:-$1}'. Must be OpenSSH compatible." 4
+    return 1
 }
 
 # 3.3. Define the SSH wrapper functions.
