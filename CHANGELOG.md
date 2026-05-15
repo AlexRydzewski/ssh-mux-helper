@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-05-15
+
+### Changed
+
+- `OPTION_`: use `OPTION_+=(take-care-of-the-ssh-host)` so the host-handling flag is always registered (caller may preset `OPTION_` first).
+- Minor cleanup in `__build_openssh_options` (`esac` before final `return 0`).
+
+### Note
+
+- Section 5 keeps an active dev harness at the end of the script (`__validate_openssh`, sample `__SSH` calls); `set -x` remains commented.
+
 ## [0.3.1] - 2026-05-15
 
 ### Changed

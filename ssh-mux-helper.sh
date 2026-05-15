@@ -13,7 +13,7 @@ readonly PROG_NAME="$(basename -- "$0")"
 readonly PID=$$
 
 # When `take-care-of-the-ssh-host` is listed, parsed host specs are appended to ssh_options_.
-: "${OPTION_[@]:=take-care-of-the-ssh-host}"
+OPTION_+=(take-care-of-the-ssh-host)
 
 # 2. Setup journaling and event treatment.
 
@@ -448,7 +448,7 @@ __build_openssh_options () {
         (*"$IFS"take-care-of-the-ssh-host"$IFS"*)
             [[ -z "$ssh_host" ]] && return 1; ssh_options_+=("$ssh_host"); return 0 ;;
         *) return 1 ;;
-    esac ;;
+    esac
     return 0
 }
 
@@ -499,5 +499,7 @@ __SSH () { __ssh "${ssh_opts_[@]}" || return 1; "${ssh_cmd_[@]}" "$@"; }
 #SSH=$(__ssh_simple_simple "${ssh_opts_[@]}") || exit; $SSH "echo hello"; $SSH "echo true"
 #__ssh_simple "${ssh_opts_[@]}" || exit; "${ssh_cmd_[@]}" "echo hello"; "${ssh_cmd_[@]}" "echo true"
 #__ssh "${ssh_opts_[@]}" || exit; "${ssh_cmd_[@]}" "echo hello"; "${ssh_cmd_[@]}" "echo true";
-#__validate_openssh "ssh" || exit 1
-#__SSH "echo hello"; __SSH "echo true"
+
+# set -x
+__validate_openssh "ssh" || exit 1
+__SSH "echo hello"; __SSH "echo true"
