@@ -4,7 +4,7 @@
 # option validation, multiplexed connections (ControlMaster / ControlPath), and
 # related utilities. See ssh-mux-helper.md for full documentation.
 #
-VERSION="0.3.0"
+VERSION="0.3.1"
 # Author:    Alexander Rydzewski <rydzewski.al@gmail.com>
 # License:   MIT — see the LICENSE file in this repository (SPDX-License-Identifier: MIT)
 
@@ -308,22 +308,6 @@ __sanitize_argv () {
       { __event_control "Invalid SSH option '$1': forbidden shell metacharacters" 4; return 1; }
 }
 
-__option_take_care_of_ssh_host () {
-    local o
-    for o in "${OPTION_[@]}"; do
-        [[ "$o" == take-care-of-the-ssh-host ]] && return 0
-    done
-    return 1
-}
-
-__append_ssh_host_if_needed () {
-    local host="${1:-}"
-    __option_take_care_of_ssh_host || return 0
-    [[ -n "$host" ]] || return 1
-    ssh_options_+=("$host")
-    return 0
-}
-
 __build_openssh_options () {
     # This implementation relies on OpenSSH semantics.
     #
@@ -343,7 +327,9 @@ __build_openssh_options () {
     # For normal case this function can check if host is specified and return status accordingly.
     # However, this also takes into account cases where the operator specifies SSH options multiple
     # times and expects them to be assembled into a single command.
-    __option_take_care_of_ssh_host && local ssh_host
+    case "$IFS${OPTION_[*]}$IFS" in
+        (*"$IFS"take-care-of-the-ssh-host"$IFS"*) local ssh_host ;;
+    esac
 
     while (( $# )); do        
         argv_=()
@@ -410,13 +396,19 @@ __build_openssh_options () {
                     --|--endopts)
                         # argv_leftover_: remaining outer positional parameters after this raw chunk.
                         shift; argv_leftover_=("$@")
-                        __append_ssh_host_if_needed "${ssh_host:-}" || return 1
-                        return 0 ;;
+                            case "$IFS${OPTION_[*]}$IFS" in
+                                (*"$IFS"take-care-of-the-ssh-host"$IFS"*)
+                                    [[ -z "$ssh_host" ]] && return 1; ssh_options_+=("$ssh_host"); return 0 ;;
+                                *) return 1 ;;
+                            esac ;;
 
                     -*)  __event_control "Unknown SSH option '${argv_[i]}'. Treat as end of SSH options." 7
                         argv_leftover_=("$@")
-                        __append_ssh_host_if_needed "${ssh_host:-}" || return 1
-                        return 0 ;;
+                        case "$IFS${OPTION_[*]}$IFS" in
+                            (*"$IFS"take-care-of-the-ssh-host"$IFS"*)
+                                [[ -z "$ssh_host" ]] && return 1; ssh_options_+=("$ssh_host"); return 0 ;;
+                            *) return 1 ;;
+                        esac ;;
 
                     *)  [[ "${option:-}" == "-o" ]] &&
                           { [[ "${argv_[i]}" =~ ^[A-Za-z][A-Za-z0-9]+(=.*)?$ ]] &&
@@ -440,7 +432,11 @@ __build_openssh_options () {
                             # one will break connection.
                             [[ -n "${ssh_host:-}" ]] &&
                               { __event_control "Host '${argv_[i]}' already specified in SSH options. Treat as end of SSH options." 8
-                                __append_ssh_host_if_needed "${ssh_host}" || return 1
+                                case "$IFS${OPTION_[*]}$IFS" in
+                                    (*"$IFS"take-care-of-the-ssh-host"$IFS"*)
+                                        [[ -z "$ssh_host" ]] && return 1; ssh_options_+=("$ssh_host"); return 0 ;;
+                                    *) return 1 ;;
+                                esac ;
                                 argv_leftover_=("$@"); return 0; }
                             ssh_host="${argv_[i]}"; continue; } ;;                        
                 esac
@@ -448,7 +444,11 @@ __build_openssh_options () {
             shift; }
     done
     argv_leftover_=("$@")
-    __append_ssh_host_if_needed "${ssh_host:-}" || return 1
+    case "$IFS${OPTION_[*]}$IFS" in
+        (*"$IFS"take-care-of-the-ssh-host"$IFS"*)
+            [[ -z "$ssh_host" ]] && return 1; ssh_options_+=("$ssh_host"); return 0 ;;
+        *) return 1 ;;
+    esac ;;
     return 0
 }
 
