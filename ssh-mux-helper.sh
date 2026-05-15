@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 #
-# __ssh_simple — Bash helpers for OpenSSH-centric workflows: argument parsing,
+# ssh-mux-helper — Bash helpers for OpenSSH-centric workflows: argument parsing,
 # option validation, multiplexed connections (ControlMaster / ControlPath), and
-# related utilities used by this ssh-helper project.
+# related utilities. See ssh-mux-helper.md for full documentation.
 #
-VERSION="0.2.0"
+VERSION="0.3.0"
 # Author:    Alexander Rydzewski <rydzewski.al@gmail.com>
 # License:   MIT — see the LICENSE file in this repository (SPDX-License-Identifier: MIT)
 
 # 1. Define the global essential configuration and constants.
 readonly PROG_NAME="$(basename -- "$0")"
 readonly PID=$$
+
+# When `take-care-of-the-ssh-host` is listed, parsed host specs are appended to ssh_options_.
+: "${OPTION_[@]:=take-care-of-the-ssh-host}"
 
 # 2. Setup journaling and event treatment.
 
@@ -169,7 +172,7 @@ __prepare_argv () {
     # declare -p argv_
     # declare -a argv_=( [0]="ssh" [1]="-o" [2]="User root" [3]="host name" )
 
-    declare -a argv_=()
+    argv_=()
     local token= qch= esc= i c
     local raw="$1"
     for ((i=0; i<${#raw}; i++)); do
@@ -305,6 +308,22 @@ __sanitize_argv () {
       { __event_control "Invalid SSH option '$1': forbidden shell metacharacters" 4; return 1; }
 }
 
+__option_take_care_of_ssh_host () {
+    local o
+    for o in "${OPTION_[@]}"; do
+        [[ "$o" == take-care-of-the-ssh-host ]] && return 0
+    done
+    return 1
+}
+
+__append_ssh_host_if_needed () {
+    local host="${1:-}"
+    __option_take_care_of_ssh_host || return 0
+    [[ -n "$host" ]] || return 1
+    ssh_options_+=("$host")
+    return 0
+}
+
 __build_openssh_options () {
     # This implementation relies on OpenSSH semantics.
     #
@@ -324,13 +343,12 @@ __build_openssh_options () {
     # For normal case this function can check if host is specified and return status accordingly.
     # However, this also takes into account cases where the operator specifies SSH options multiple
     # times and expects them to be assembled into a single command.
-    [[ "${OPTION_[@]}" =~ ^take-care-of-the-ssh-host$ ]] && local ssh_host
+    __option_take_care_of_ssh_host && local ssh_host
 
     while (( $# )); do        
         argv_=()
         __prepare_argv "$1" && __normalize_options "${argv_[@]}" &&
-          { echo "argv_[@]: ${argv_[@]}"
-            for (( i=0; i<${#argv_[@]}; i++ )); do
+          { for (( i=0; i<${#argv_[@]}; i++ )); do
                 # This may be necessary in other contexts. Here we check input when __prepare_argv is used.
                 # __sanitize_argv "${argv_[i]}" || return 1
         
@@ -390,10 +408,15 @@ __build_openssh_options () {
                         ssh_options_+=("${argv_[i]}" "${argv_[i+1]}"); (( i++ )); continue ;;
 
                     --|--endopts)
-                        shift; argv_=( "$@" ); return 0 ;;
+                        # argv_leftover_: remaining outer positional parameters after this raw chunk.
+                        shift; argv_leftover_=("$@")
+                        __append_ssh_host_if_needed "${ssh_host:-}" || return 1
+                        return 0 ;;
 
                     -*)  __event_control "Unknown SSH option '${argv_[i]}'. Treat as end of SSH options." 7
-                        argv_=( "$@" ); argv_leftover_=("$@"); return 0 ;;
+                        argv_leftover_=("$@")
+                        __append_ssh_host_if_needed "${ssh_host:-}" || return 1
+                        return 0 ;;
 
                     *)  [[ "${option:-}" == "-o" ]] &&
                           { [[ "${argv_[i]}" =~ ^[A-Za-z][A-Za-z0-9]+(=.*)?$ ]] &&
@@ -417,15 +440,16 @@ __build_openssh_options () {
                             # one will break connection.
                             [[ -n "${ssh_host:-}" ]] &&
                               { __event_control "Host '${argv_[i]}' already specified in SSH options. Treat as end of SSH options." 8
-                                ssh_options_+=("$ssh_host"); argv_leftover_=("$@"); return 0; }
+                                __append_ssh_host_if_needed "${ssh_host}" || return 1
+                                argv_leftover_=("$@"); return 0; }
                             ssh_host="${argv_[i]}"; continue; } ;;                        
                 esac
             done
             shift; }
-        done
-    [[ "${OPTION_[@]}" =~ ^take-care-of-the-ssh-host$ ]] && [[  -z "${ssh_host:-}" ]] &&
-      { argv_leftover_=("$@"); return 1; }
-    ssh_options_+=("$ssh_host"); argv_leftover_=("$@"); return 0
+    done
+    argv_leftover_=("$@")
+    __append_ssh_host_if_needed "${ssh_host:-}" || return 1
+    return 0
 }
 
 __ssh () {
@@ -447,18 +471,16 @@ __ssh () {
     # Do not echo the assembled command here. Keep it in the `ssh_cmd_` array so
     # quoting, whitespace, and argument boundaries are preserved exactly.
 
-    local ssh_host
+    local -a ssh_options_=()
 
     __build_openssh_options "$@" || return 1
-          
+
     ssh_cmd_=(
-      ssh "$@"
+      ssh "${ssh_options_[@]}"
       -o "ControlPath=${SSH_CONTROL_PATH:-~/.ssh/%r@%h:%p}" -o "LogLevel=quiet")
       [[ -n ${SSH_USER:-} ]] && ssh_cmd_+=(-o "User=$SSH_USER")
       [[ -n ${SSH_PORT:-} ]] && ssh_cmd_+=(-o "Port=$SSH_PORT")
-      [[ ${ssh_host} == "host dummyhost" ]] &&
-        if [[ -n ${SSH_HOST:-} ]]; then ssh_cmd_+=("$SSH_HOST"); else return 1; fi
-    
+
     "${ssh_cmd_[@]}" -O check &> /dev/null && return
     
     "${ssh_cmd_[@]}" -o BatchMode=yes -o ControlMaster=yes -o ControlPersist=1m -o ConnectTimeout=3 \
@@ -477,7 +499,5 @@ __SSH () { __ssh "${ssh_opts_[@]}" || return 1; "${ssh_cmd_[@]}" "$@"; }
 #SSH=$(__ssh_simple_simple "${ssh_opts_[@]}") || exit; $SSH "echo hello"; $SSH "echo true"
 #__ssh_simple "${ssh_opts_[@]}" || exit; "${ssh_cmd_[@]}" "echo hello"; "${ssh_cmd_[@]}" "echo true"
 #__ssh "${ssh_opts_[@]}" || exit; "${ssh_cmd_[@]}" "echo hello"; "${ssh_cmd_[@]}" "echo true";
-
-set -x
-__validate_openssh "ssh" || exit 1;
-__SSH "echo hello"; __SSH "echo true";
+#__validate_openssh "ssh" || exit 1
+#__SSH "echo hello"; __SSH "echo true"
