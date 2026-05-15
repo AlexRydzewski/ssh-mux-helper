@@ -4,7 +4,7 @@
 # option validation, multiplexed connections (ControlMaster / ControlPath), and
 # related utilities. See ssh-mux-helper.md for full documentation.
 #
-VERSION="0.3.1"
+VERSION="0.3.2"
 # Author:    Alexander Rydzewski <rydzewski.al@gmail.com>
 # License:   MIT — see the LICENSE file in this repository (SPDX-License-Identifier: MIT)
 
